@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
 using Solvers.Utils;
 
@@ -199,57 +200,153 @@ namespace Solvers
             }
             #endregion
 
+            public struct Point
+            {
+                public byte X;
+                public byte Y;
+            }
+            private class MinHeap
+            {
+                private readonly Point[] _storage;
+                private readonly Board _board;
+
+                public int Count { get; private set; }
+
+                private static int Parent(int index)
+                {
+                    return (index - 1) / 2;
+                }
+
+                private static int Child(int index)
+                {
+                    return 2 * index + 1;
+                }
+
+                private void Swap(int index1, int index2)
+                {
+                    Point temp = _storage[index1];
+                    _storage[index1] = _storage[index2];
+                    _storage[index2] = temp;
+                }
+
+                private bool Compare(int index1, int index2)
+                {
+                    byte count1 = _board.Options(_storage[index1]).Count;
+                    byte count2 = _board.Options(_storage[index2]).Count;
+                    int compare = count1 - count2;
+                    return compare < 0;
+                }
+                private void HeapifyUp(int index)
+                {
+                    int parent;
+                    while (index > 0 && Compare(index, parent = Parent(index)))
+                    {
+                        //Child preferred to parent
+                        Swap(index, parent);
+                        index = parent;
+                    }
+                }
+                private void HeapifyDown(int index)
+                {
+                    int childLeft;
+                    while ((childLeft = Child(index)) < Count)
+                    {
+                        int childRight = childLeft + 1, largest = index;
+                        if (Compare(childLeft, largest))
+                            largest = childLeft;
+                        if (childRight < Count && Compare(childRight, largest))
+                            largest = childRight;
+
+                        if (largest == index)
+                            break;
+                        Swap(index, largest);
+                        index = largest;
+                    }
+                }
+
+                private void Insert(Point item)
+                {
+                    _storage[Count] = item;
+                    HeapifyUp(Count);
+                    Count++;
+                }
+
+                public Point Pop()
+                {
+                    if (Count == 0)
+                        throw new InvalidOperationException("Count is zero");
+                    Point temp = _storage[0];
+                    Count--;
+                    _storage[0] = _storage[Count];
+                    HeapifyDown(0);
+                    return temp;
+                }
+
+                public MinHeap(List<Point> points, Board board)
+                {
+                    _storage = new Point[points.Count];
+                    _board = board;
+                    foreach (Point point in points)
+                    {
+                        Insert(point);
+                    }
+                }
+            }
+
             private readonly byte[,] _board;
             private readonly BitVector64[] _horizontalLines;
             private readonly BitVector64[] _verticalLines;
             private readonly BitVector64[] _boxes;
+
+            private readonly MinHeap _minHeap;
+
             public readonly byte Size;
             private readonly byte _digits;
             private readonly byte _root;
 
-            private int Box(int x, int y)
+            private int Box(Point point)
             {
-                int horizontal = x / _root;
-                int vertical = y / _root;
+                int horizontal = point.X / _root;
+                int vertical = point.Y / _root;
                 return horizontal * _root + vertical;
             }
 
-            public byte this[byte x, byte y]
+            public byte this[Point point]
             {
                 get
                 {
-                    return _board[x, y];
+                    return _board[point.X, point.Y];
                 }
                 set
                 {
-                    if (value == _board[x, y]) return;
-                    if (_board[x, y] != 0)
+                    if (value == _board[point.X, point.Y]) return;
+                    if (_board[point.X, point.Y] != 0)
                     {
-                        int index = _board[x, y] - 1;
-                        _horizontalLines[x][index] = true;
-                        _verticalLines[y][index] = true;
-                        _boxes[Box(x, y)][index] = true;
-                        _board[x, y] = 0;
+                        int index = _board[point.X, point.Y] - 1;
+                        _horizontalLines[point.X][index] = true;
+                        _verticalLines[point.Y][index] = true;
+                        _boxes[Box(point)][index] = true;
+                        _board[point.X, point.Y] = 0;
                     }
                     if (value != 0)
                     {
                         int index = value - 1;
-                        if (!(_horizontalLines[x][index] & _verticalLines[y][index] & _boxes[Box(x, y)][index]))
+                        if (!(_horizontalLines[point.X][index] & _verticalLines[point.Y][index] & _boxes[Box(point)][index]))
                         {
                             throw new InvalidOperationException(
-                                $"Set dissalowed by a region, horizontal {_horizontalLines[x][index]}, vertical {_verticalLines[y][index]}, box {_boxes[Box(x, y)][index]}");
+                                $"Set dissalowed by a region, horizontal {_horizontalLines[point.X][index]}, vertical {_verticalLines[point.Y][index]}, box {_boxes[Box(point)][index]}");
                         }
-                        _horizontalLines[x][index] = false;
-                        _verticalLines[y][index] = false;
-                        _boxes[Box(x, y)][index] = false;
-                        _board[x, y] = value;
+                        _horizontalLines[point.X][index] = false;
+                        _verticalLines[point.Y][index] = false;
+                        _boxes[Box(point)][index] = false;
+                        _board[point.X, point.Y] = value;
                     }
                 }
             }
 
-            public BitVector64 Options(int x, int y)
+            public BitVector64 Options(Point point)
             {
-                return _horizontalLines[x] & _verticalLines[y] & _boxes[Box(x, y)];
+                return _horizontalLines[point.X] & _verticalLines[point.Y] & _boxes[Box(point)];
             }
 
             public Board(byte size)
@@ -332,7 +429,7 @@ namespace Solvers
             {
                 for (byte j = 0; j < size; j++)
                 {
-                    board[i, j] = byte.Parse(partial.Substring((i * size + j) * digits, digits));
+                    board[new Board.Point { X = i, Y = j }] = byte.Parse(partial.Substring((i * size + j) * digits, digits));
                 }
             }
             return board;
@@ -343,15 +440,16 @@ namespace Solvers
             for (byte x = 0; x < board.Size; x++)
                 for (byte y = 0; y < board.Size; y++)
                 {
-                    if (board[x, y] == 0)
+                    Board.Point point = new Board.Point {X = x, Y = y};
+                    if (board[point] == 0)
                     {
                         for (byte i = 0; i < board.Size; i++)
                         {
-                            if (board.Options(x, y)[i])
+                            if (board.Options(point)[i])
                             {
-                                board[x, y] = (byte)(i + 1);
+                                board[point] = (byte)(i + 1);
                                 if (SolveBruteForce(board)) return true;
-                                board[x, y] = 0;
+                                board[point] = 0;
                             }
                         }
                         return false;
@@ -366,9 +464,10 @@ namespace Solvers
             for (byte i = 0; i < board.Size; i++)
                 for (byte j = 0; j < board.Size; j++)
                 {
-                    if (board[i, j] == 0)
+                    Board.Point point = new Board.Point {X = i, Y = j};
+                    if (board[point] == 0)
                     {
-                        binaryHeap.Insert(new OptionPoint(i, j, board.Options(i, j)));
+                        binaryHeap.Insert(new OptionPoint(point, board.Options(point)));
                     }
                 }
             if (binaryHeap.Count == 0) return true;
@@ -377,9 +476,9 @@ namespace Solvers
             {
                 if (minOptionPoint.BitVector64[i])
                 {
-                    board[minOptionPoint.X, minOptionPoint.Y] = (byte)(i + 1);
+                    board[minOptionPoint.Point] = (byte)(i + 1);
                     if (SolveBinaryHeap(board)) return true;
-                    board[minOptionPoint.X, minOptionPoint.Y] = 0;
+                    board[minOptionPoint.Point] = 0;
                 }
             }
             return false;
@@ -387,15 +486,14 @@ namespace Solvers
 
         public class OptionPoint : IComparable<OptionPoint>
         {
-            public OptionPoint(byte x, byte y, BitVector64 bitVector64)
+            public OptionPoint(Board.Point point, BitVector64 bitVector64)
             {
-                X = x;
-                Y = y;
+                Point = point;
                 _options = bitVector64.Count;
                 BitVector64 = bitVector64;
             }
-            public readonly byte X;
-            public readonly byte Y;
+
+            public readonly Board.Point Point;
             private readonly byte _options;
             public readonly BitVector64 BitVector64;
 
