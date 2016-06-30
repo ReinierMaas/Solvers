@@ -1,7 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Text;
+using Solvers.Utils;
 
 namespace Solvers
 {
@@ -161,15 +160,52 @@ namespace Solvers
         };
         #endregion
 
-        public class Board
+        public class Board : IEquatable<Board>
         {
-            private readonly int[,] _board;
-            private readonly bool[,] _horizontalLines; //Maybe convert to bitVector[]
-            private readonly bool[,] _verticalLines; //Maybe convert to bitVector[]
-            private readonly bool[,] _boxes; //Maybe convert to bitVector[]
-            private readonly int _size;
-            private readonly int _digits;
-            private readonly int _root;
+            #region Equality
+            public bool Equals(Board other)
+            {
+                if (ReferenceEquals(null, other)) return false;
+                if (ReferenceEquals(this, other)) return true;
+                if (Size != other.Size) return false;
+                bool same = true;
+                for (byte x = 0; x < Size; x++)
+                    for (byte y = 0; y < Size; y++)
+                        same &= Equals(_board[x, y], other._board[x, y]);
+                return same;
+            }
+
+            public override bool Equals(object obj)
+            {
+                if (ReferenceEquals(null, obj)) return false;
+                if (ReferenceEquals(this, obj)) return true;
+                if (obj.GetType() != this.GetType()) return false;
+                return Equals((Board)obj);
+            }
+
+            public override int GetHashCode()
+            {
+                return _board?.GetHashCode() ?? 0;
+            }
+
+            public static bool operator ==(Board left, Board right)
+            {
+                return Equals(left, right);
+            }
+
+            public static bool operator !=(Board left, Board right)
+            {
+                return !Equals(left, right);
+            }
+            #endregion
+
+            private readonly byte[,] _board;
+            private readonly BitVector64[] _horizontalLines;
+            private readonly BitVector64[] _verticalLines;
+            private readonly BitVector64[] _boxes;
+            public readonly byte Size;
+            private readonly byte _digits;
+            private readonly byte _root;
 
             private int Box(int x, int y)
             {
@@ -178,115 +214,195 @@ namespace Solvers
                 return horizontal * _root + vertical;
             }
 
-            public void Set(int x, int y, int value)
-            {
-                if (value == _board[x, y]) return;
-                if (_board[x, y] != 0)
-                {
-                    int index = _board[x, y] - 1;
-                    _horizontalLines[x, index] = true;
-                    _verticalLines[y, index] = true;
-                    _boxes[Box(x, y), index] = true;
-                    _board[x, y] = 0;
-                }
-                if (value != 0)
-                {
-                    int index = value - 1;
-                    _horizontalLines[x, index] = false;
-                    _verticalLines[y, index] = false;
-                    _boxes[Box(x, y), index] = false;
-                    _board[x, y] = value;
-                }
-            }
-
-            public int Get(int x, int y)
-            {
-                return _board[x, y];
-            }
-
-            public List<int> Options(int x, int y)
-            {
-                List<int> options = new List<int>(_size);
-                int b = Box(x, y);
-                for (int i = 0; i < _size; i++)
-                {
-                    if (_horizontalLines[x, i] && _verticalLines[y, i] && _boxes[b, i])
-                        options.Add(i);
-                }
-                return options;
-            }
-
-            public Board(int size)
-            {
-                _size = size;
-                _digits = (int)Math.Ceiling(Math.Log10(size));
-                _root = (int)Math.Sqrt(_size);
-                _board = new int[_size, _size];
-                _horizontalLines = new bool[_size, _size];
-                _verticalLines = new bool[_size, _size];
-                _boxes = new bool[_size, _size];
-                for (int i = 0; i < _size; i++)
-                {
-                    for (int j = 0; j < _size; j++)
-                    {
-                        _horizontalLines[i, j] = true;
-                        _verticalLines[i, j] = true;
-                        _boxes[i, j] = true;
-                    }
-                }
-            }
-
-            public string PrettyPrint
+            public byte this[byte x, byte y]
             {
                 get
                 {
-                    StringBuilder prettyString = new StringBuilder((_size + _root + 2) * (_size + _root + 2));
-                    StringBuilder line = new StringBuilder(_size + _root + 2);
-                    line.Append('+');
-                    for (int i = 0; i < _root; i++)
+                    return _board[x, y];
+                }
+                set
+                {
+                    if (value == _board[x, y]) return;
+                    if (_board[x, y] != 0)
                     {
-                        line.Append('-', 1 + _root + _root * _digits);
-                        line.Append('+');
+                        int index = _board[x, y] - 1;
+                        _horizontalLines[x][index] = true;
+                        _verticalLines[y][index] = true;
+                        _boxes[Box(x, y)][index] = true;
+                        _board[x, y] = 0;
                     }
-                    string lineSplit = line.ToString();
-                    prettyString.AppendLine(lineSplit);
-                    for (int i = 0; i < _root; i++)
+                    if (value != 0)
                     {
+                        int index = value - 1;
+                        if (!(_horizontalLines[x][index] & _verticalLines[y][index] & _boxes[Box(x, y)][index]))
+                        {
+                            throw new InvalidOperationException(
+                                $"Set dissalowed by a region, horizontal {_horizontalLines[x][index]}, vertical {_verticalLines[y][index]}, box {_boxes[Box(x, y)][index]}");
+                        }
+                        _horizontalLines[x][index] = false;
+                        _verticalLines[y][index] = false;
+                        _boxes[Box(x, y)][index] = false;
+                        _board[x, y] = value;
+                    }
+                }
+            }
+
+            public BitVector64 Options(int x, int y)
+            {
+                return _horizontalLines[x] & _verticalLines[y] & _boxes[Box(x, y)];
+            }
+
+            public Board(byte size)
+            {
+                if (size < 1 || size > 64) throw new IndexOutOfRangeException($"Size smaller then 1 (no board), or larger then 64 (too large), size: {size}");
+                Size = size;
+                _digits = (byte)Math.Ceiling(Math.Log10(size));
+                _root = (byte)Math.Sqrt(Size);
+
+                // Initialise empty board
+                _board = new byte[Size, Size];
+
+                // Initialise empty regions
+                _horizontalLines = new BitVector64[Size];
+                _verticalLines = new BitVector64[Size];
+                _boxes = new BitVector64[Size];
+
+                // Initial bitVector64 has all bits till size on true
+                BitVector64 bitVector64 = new BitVector64();
+                for (int i = 0; i < Size; i++)
+                {
+                    bitVector64[i] = true;
+                }
+
+                // Set initial bitVector for all regions
+                for (int i = 0; i < Size; i++)
+                {
+                    _horizontalLines[i] = bitVector64;
+                    _verticalLines[i] = bitVector64;
+                    _boxes[i] = bitVector64;
+                }
+            }
+
+            public override string ToString()
+            {
+                StringBuilder prettyString = new StringBuilder((Size + _root + 2) * (Size + _root + 2));
+                StringBuilder line = new StringBuilder(Size + _root + 2);
+                line.Append('+');
+                for (int i = 0; i < _root; i++)
+                {
+                    line.Append('-', 1 + _root + _root * _digits);
+                    line.Append('+');
+                }
+                string blokSplit = line.ToString();
+                prettyString.AppendLine(blokSplit);
+                for (int i = 0; i < _root; i++)
+                {
+                    for (int j = 0; j < _root; j++)
+                    {
+                        int x = i * _root + j;
                         line.Clear();
                         line.Append('|');
-                        for (int j = 0; i < _root; i++)
+                        for (int k = 0; k < _root; k++)
                         {
-                            line.Append('-', 1 + _root + _root*_digits);
-                            line.Append('|');
+                            for (int l = 0; l < _root; l++)
+                            {
+                                int y = k * _root + l;
+                                int value = _board[x, y];
+                                line.Append(' ');
+                                line.Append(value == 0 ? new string(' ', _digits) : value.ToString("d" + _digits));
+                            }
+                            line.Append(" |");
                         }
-                        prettyString.AppendLine(lineSplit);
+                        prettyString.AppendLine(line.ToString());
                     }
-                    return prettyString.ToString();
+                    prettyString.AppendLine(blokSplit);
                 }
+                return prettyString.ToString();
             }
         }
 
         /// <summary>
-        /// 
+        /// 0 indexes are unknown, every number needs to have the same size, pad with zeros
         /// </summary>
-        /// <param name="partial">0 indexes are unknown, every number needs to have the same size, pad with zeros</param>
-        public Board Read(int size, string partial)
+        public Board Read(byte size, string partial)
         {
             Board board = new Board(size);
-            int digits = (int)Math.Ceiling(Math.Log10(size));
-            for (int i = 0; i < size; i++)
+            byte digits = (byte)Math.Ceiling(Math.Log10(size));
+            for (byte i = 0; i < size; i++)
             {
-                for (int j = 0; j < size; j++)
+                for (byte j = 0; j < size; j++)
                 {
-                    board.Set(i, j, int.Parse(partial.Substring((i * size + j) * digits, digits)));
+                    board[i, j] = byte.Parse(partial.Substring((i * size + j) * digits, digits));
                 }
             }
             return board;
         }
 
-        public void Solve(Board board)
+        public bool SolveBruteForce(Board board)
         {
+            for (byte x = 0; x < board.Size; x++)
+                for (byte y = 0; y < board.Size; y++)
+                {
+                    if (board[x, y] == 0)
+                    {
+                        for (byte i = 0; i < board.Size; i++)
+                        {
+                            if (board.Options(x, y)[i])
+                            {
+                                board[x, y] = (byte)(i + 1);
+                                if (SolveBruteForce(board)) return true;
+                                board[x, y] = 0;
+                            }
+                        }
+                        return false;
+                    }
+                }
+            return true;
+        }
 
+        public bool SolveBinaryHeap(Board board)
+        {
+            BinaryHeap<OptionPoint> binaryHeap = new BinaryHeap<OptionPoint>(false); // Make a minheap of all possible moves
+            for (byte i = 0; i < board.Size; i++)
+                for (byte j = 0; j < board.Size; j++)
+                {
+                    if (board[i, j] == 0)
+                    {
+                        binaryHeap.Insert(new OptionPoint(i, j, board.Options(i, j)));
+                    }
+                }
+            if (binaryHeap.Count == 0) return true;
+            OptionPoint minOptionPoint = binaryHeap.Peak();
+            for (byte i = 0; i < board.Size; i++)
+            {
+                if (minOptionPoint.BitVector64[i])
+                {
+                    board[minOptionPoint.X, minOptionPoint.Y] = (byte)(i + 1);
+                    if (SolveBinaryHeap(board)) return true;
+                    board[minOptionPoint.X, minOptionPoint.Y] = 0;
+                }
+            }
+            return false;
+        }
+
+        public class OptionPoint : IComparable<OptionPoint>
+        {
+            public OptionPoint(byte x, byte y, BitVector64 bitVector64)
+            {
+                X = x;
+                Y = y;
+                _options = bitVector64.Count;
+                BitVector64 = bitVector64;
+            }
+            public readonly byte X;
+            public readonly byte Y;
+            private readonly byte _options;
+            public readonly BitVector64 BitVector64;
+
+            public int CompareTo(OptionPoint other)
+            {
+                return _options.CompareTo(other._options);
+            }
         }
     }
 }

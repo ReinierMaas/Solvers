@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Solvers
 {
@@ -14,12 +10,11 @@ namespace Solvers
             {
                 Sudoku sudoku = new Sudoku();
                 Sudoku.Board board = sudoku.Read(9, s);
-                Console.WriteLine(board.PrettyPrint);
-                break;
-                sudoku.Solve(board);
-                Console.WriteLine(board.PrettyPrint);
+                Console.Write(board);
+                sudoku.SolveBinaryHeap(board);
+                Console.Write(board);
             }
-            Console.Read();
+            Console.ReadKey();
         }
     }
 }
